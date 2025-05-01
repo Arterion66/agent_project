@@ -115,7 +115,6 @@ def route_model_output(state: State) -> Literal["__end__", "tools"]:
     # Otherwise we execute the requested actions
     return "tools"
 
-
 # Add a conditional edge to determine the next step after `call_model`
 builder.add_conditional_edges(
     "call_model",
@@ -131,12 +130,9 @@ builder.add_edge("tools", "call_model")
 # Compile the builder into an executable graph
 graph = builder.compile(name="ReAct Agent")
 
-
-
 builder2 = StateGraph(State, input=InputState, config_schema=Configuration)
 builder2.add_node(call_model_pokemon)
 builder2.add_node("tools", ToolNode(POKEMONTOOLS))
-
 builder2.add_edge("__start__", "call_model_pokemon")
 builder2.add_conditional_edges("call_model_pokemon", route_model_output)
 builder2.add_edge("tools", "call_model_pokemon")

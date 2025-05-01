@@ -64,8 +64,14 @@ async def call_model(state: State) -> Dict[str, List[AIMessage]]:
 
 async def call_model_pokemon(state: State) -> Dict[str, List[AIMessage]]:
     configuration = Configuration.from_context()
-    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(POKEMONTOOLS)  # Usando POKEMONTOOLS
-    system_message = configuration.system_prompt.format(system_time=datetime.now(tz=UTC).isoformat())
+    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(POKEMONTOOLS)
+    pokemon_prompt = """You are a helpful AI assistant.
+System time: {system_time}
+
+Your job is to provide responses about Pokémon. When you receive a name such as raichu alola or raichu de alola, or any compound names, they should be written with a hyphen, like raichu-alola.
+Make sure to add a hyphen to compound names."""
+    system_message = pokemon_prompt.format(system_time=datetime.now(tz=UTC).isoformat()) #configuration.system_prompt.format(system_time=datetime.now(tz=UTC).isoformat())
+
     
     response = cast(AIMessage, await model.ainvoke([{"role": "system", "content": system_message}, *state.messages]))
     
@@ -130,6 +136,7 @@ graph = builder.compile(name="ReAct Agent")
 builder2 = StateGraph(State, input=InputState, config_schema=Configuration)
 builder2.add_node(call_model_pokemon)
 builder2.add_node("tools", ToolNode(POKEMONTOOLS))
+
 builder2.add_edge("__start__", "call_model_pokemon")
 builder2.add_conditional_edges("call_model_pokemon", route_model_output)
 builder2.add_edge("tools", "call_model_pokemon")

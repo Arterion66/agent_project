@@ -12,7 +12,7 @@ from langgraph.prebuilt import ToolNode
 
 from react_agent.configuration import Configuration
 from react_agent.state import InputState, State
-from react_agent.tools import TOOLS
+from react_agent.tools import TOOLS, POKEMONTOOLS
 from react_agent.utils import load_chat_model
 
 # Define the function that calls the model
@@ -33,7 +33,7 @@ async def call_model(state: State) -> Dict[str, List[AIMessage]]:
     configuration = Configuration.from_context()
 
     # Initialize the model with tool binding. Change the model or add more tools here.
-    model = load_chat_model(configuration.model).bind_tools(TOOLS)
+    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(TOOLS) # configuration.model
 
     # Format the system prompt. Customize this to change the agent's behavior.
     system_message = configuration.system_prompt.format(
@@ -62,6 +62,17 @@ async def call_model(state: State) -> Dict[str, List[AIMessage]]:
     # Return the model's response as a list to be added to existing messages
     return {"messages": [response]}
 
+async def call_model_pokemon(state: State) -> Dict[str, List[AIMessage]]:
+    configuration = Configuration.from_context()
+    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(POKEMONTOOLS)  # Usando POKEMONTOOLS
+    system_message = configuration.system_prompt.format(system_time=datetime.now(tz=UTC).isoformat())
+    
+    response = cast(AIMessage, await model.ainvoke([{"role": "system", "content": system_message}, *state.messages]))
+    
+    if state.is_last_step and response.tool_calls:
+        return {"messages": [AIMessage(id=response.id, content="Sorry, I could not find an answer to your question in the specified number of steps.")]}
+    
+    return {"messages": [response]}
 
 # Define a new graph
 
@@ -113,3 +124,13 @@ builder.add_edge("tools", "call_model")
 
 # Compile the builder into an executable graph
 graph = builder.compile(name="ReAct Agent")
+
+
+
+builder2 = StateGraph(State, input=InputState, config_schema=Configuration)
+builder2.add_node(call_model_pokemon)
+builder2.add_node("tools", ToolNode(POKEMONTOOLS))
+builder2.add_edge("__start__", "call_model_pokemon")
+builder2.add_conditional_edges("call_model_pokemon", route_model_output)
+builder2.add_edge("tools", "call_model_pokemon")
+graph2 = builder2.compile(name="Pokemon Agent")

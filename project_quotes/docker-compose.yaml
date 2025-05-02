@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: postgres_quotes
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: quotes
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin1234
+    ports:
+      - "5432:5432"
+    networks:
+      - quotes_network
+
+  quotes:
+    build:
+      context: .
+      dockerfile: dockerfile
+    image: quotes:latest
+    container_name: quotes
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8001:8001"
+    networks:
+      - quotes_network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin1234
+    ports:
+      - "8081:80"  # Accederás a pgAdmin en http://localhost:8081
+    networks:
+      - quotes_network
+
+networks:
+  quotes_network:
+    driver: bridge

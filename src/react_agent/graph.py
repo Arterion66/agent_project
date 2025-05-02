@@ -12,7 +12,7 @@ from langgraph.prebuilt import ToolNode
 
 from react_agent.configuration import Configuration
 from react_agent.state import InputState, State
-from react_agent.tools import TOOLS, POKEMONTOOLS
+from react_agent.tools import TOOLS, POKEMONTOOLS, GOOGLE_CALENDAR_TOOLS
 from react_agent.utils import load_chat_model
 
 # Define the function that calls the model
@@ -62,7 +62,7 @@ async def call_model(state: State) -> Dict[str, List[AIMessage]]:
     # Return the model's response as a list to be added to existing messages
     return {"messages": [response]}
 
-async def call_model_pokemon(state: State) -> Dict[str, List[AIMessage]]:
+async def pokemon_expert(state: State) -> Dict[str, List[AIMessage]]:
     configuration = Configuration.from_context()
     model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(POKEMONTOOLS)
     pokemon_prompt = """You are a helpful AI assistant.
@@ -115,6 +115,28 @@ def route_model_output(state: State) -> Literal["__end__", "tools"]:
     # Otherwise we execute the requested actions
     return "tools"
 
+def route_model_output_pokemon(state: State) -> Literal["__end__", "pokemon_tools"]:
+    """Determine the next node based on the model's output.
+
+    This function checks if the model's last message contains tool calls.
+
+    Args:
+        state (State): The current state of the conversation.
+
+    Returns:
+        str: The name of the next node to call ("__end__" or "pokemon_tools").
+    """
+    last_message = state.messages[-1]
+    if not isinstance(last_message, AIMessage):
+        raise ValueError(
+            f"Expected AIMessage in output edges, but got {type(last_message).__name__}"
+        )
+    # If there is no tool call, then we finish
+    if not last_message.tool_calls:
+        return "__end__"
+    # Otherwise we execute the requested actions
+    return "pokemon_tools"
+
 # Add a conditional edge to determine the next step after `call_model`
 builder.add_conditional_edges(
     "call_model",
@@ -130,10 +152,44 @@ builder.add_edge("tools", "call_model")
 # Compile the builder into an executable graph
 graph = builder.compile(name="ReAct Agent")
 
-builder2 = StateGraph(State, input=InputState, config_schema=Configuration)
-builder2.add_node(call_model_pokemon)
-builder2.add_node("tools", ToolNode(POKEMONTOOLS))
-builder2.add_edge("__start__", "call_model_pokemon")
-builder2.add_conditional_edges("call_model_pokemon", route_model_output)
-builder2.add_edge("tools", "call_model_pokemon")
-graph2 = builder2.compile(name="Pokemon Agent")
+async def fun_facts_pokemon(state: State) -> Dict[str, List[AIMessage]]:
+    configuration = Configuration.from_context()
+    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct")
+
+    prompt = """Eres un experto en Pokémon que cuenta datos curiosos y hechos interesantes.
+A partir del mensaje anterior, genera 2 o 3 datos curiosos interesantes y relevantes 
+sobre el Pokémon mencionado."""
+
+    system_message = prompt + f"\nHora del sistema: {datetime.now(tz=UTC).isoformat()}"
+    response = await model.ainvoke([{"role": "system", "content": system_message}, *state.messages])
+    return {"messages": [response]}
+
+def route_output_pokemon(state: State) -> Literal["pokemon_tools", "fun_facts", "__end__"]:
+    last_message = state.messages[-1]
+    if not isinstance(last_message, AIMessage):
+        raise ValueError("Expected AIMessage")
+
+    # Si el modelo ha dado la información correcta o si no se necesita más interacción
+    if last_message.tool_calls:
+        return "pokemon_tools"  # Si se necesita más información, vamos al experto
+    elif len(state.messages) > 1:
+        return "fun_facts"  # Si ya se pasó por el experto, mostramos datos curiosos
+    else:
+        return "__end__"  # Terminamos el proceso si ya no se necesita más
+
+builder_pokemon = StateGraph(State, input=InputState, config_schema=Configuration)
+
+# Añadimos los nodos necesarios
+builder_pokemon.add_node("pokemon_expert", pokemon_expert)
+builder_pokemon.add_node("pokemon_tools", ToolNode(POKEMONTOOLS))
+builder_pokemon.add_node("fun_facts", fun_facts_pokemon)
+
+# Añadimos los edges para definir el flujo
+builder_pokemon.add_edge("__start__", "pokemon_expert")
+builder_pokemon.add_conditional_edges("pokemon_expert", route_output_pokemon)
+builder_pokemon.add_edge("pokemon_tools", "pokemon_expert")  # Volver al modelo si se necesita más
+builder_pokemon.add_edge("fun_facts", "__end__")  # Finalizamos después de mostrar los datos curiosos
+
+
+graph_pokemon = builder_pokemon.compile(name="PokemonExpert")
+

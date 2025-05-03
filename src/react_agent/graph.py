@@ -12,7 +12,7 @@ from langgraph.prebuilt import ToolNode
 
 from react_agent.configuration import Configuration
 from react_agent.state import InputState, State
-from react_agent.tools import TOOLS, POKEMONTOOLS, GOOGLE_CALENDAR_TOOLS
+from react_agent.tools import TOOLS, POKEMONTOOLS, QUOTETOOLS, EMAILTOOL
 from react_agent.utils import load_chat_model
 
 # Define the function that calls the model
@@ -156,9 +156,9 @@ async def fun_facts_pokemon(state: State) -> Dict[str, List[AIMessage]]:
     configuration = Configuration.from_context()
     model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct")
 
-    prompt = """Eres un experto en Pokémon que cuenta datos curiosos y hechos interesantes.
-A partir del mensaje anterior, genera 2 o 3 datos curiosos interesantes y relevantes 
-sobre el Pokémon mencionado."""
+    prompt = """You are a Pokémon expert who tells curious facts and interesting facts.
+From the above message, generate 2 or 3 interesting and relevant fun facts about the Pokémon 
+about the Pokémon mentioned."""
 
     system_message = prompt + f"\nHora del sistema: {datetime.now(tz=UTC).isoformat()}"
     response = await model.ainvoke([{"role": "system", "content": system_message}, *state.messages])
@@ -190,6 +190,59 @@ builder_pokemon.add_conditional_edges("pokemon_expert", route_output_pokemon)
 builder_pokemon.add_edge("pokemon_tools", "pokemon_expert")  # Volver al modelo si se necesita más
 builder_pokemon.add_edge("fun_facts", "__end__")  # Finalizamos después de mostrar los datos curiosos
 
-
 graph_pokemon = builder_pokemon.compile(name="PokemonExpert")
 
+async def appointment_manager(state: State) -> Dict[str, List[AIMessage]]:
+    configuration = Configuration.from_context()
+    
+    # Vinculamos el modelo a las herramientas
+    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(QUOTETOOLS)
+
+    prompt = """You are an appointment manager. You can help with the following tasks:
+    - Checking available time slots for appointments.
+    - Creating new appointments.
+    - Rescheduling appointments.
+    - Canceling existing appointments.
+
+    Please ensure that the date format for all appointments is as follows: YYYY-MM-DDTHH:mm:ss.
+    
+    You should also answer questions about appointment availability and scheduling.
+
+    The current system time is: {system_time}"""
+
+    system_message = prompt.format(system_time=datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    # El modelo responderá y puede hacer tool_calls
+    response = await model.ainvoke([{"role": "system", "content": system_message}, *state.messages])
+    
+    # Si estamos en el último paso y aún quiere usar herramientas, termina
+    if state.is_last_step and response.tool_calls:
+        return {"messages": [AIMessage(id=response.id, content="Sorry, I could not find an answer to your question in the specified number of steps.")]}
+
+    return {"messages": [response]}
+
+# Construimos el grafo correctamente con la relación explícita
+builder_appointment = StateGraph(State, input=InputState, config_schema=Configuration)
+
+# Añadimos los nodos
+builder_appointment.add_node("appointment_manager", appointment_manager)
+builder_appointment.add_node("quotetools", ToolNode(QUOTETOOLS))
+
+# Flujo inicial desde __start__ a appointment_manager
+builder_appointment.add_edge("__start__", "appointment_manager")
+
+# Flujo condicional: si hay tool_calls, ir a quotetools; si no, terminar
+def route_appointment_output(state: State) -> Literal["quotetools", "__end__"]:
+    last_message = state.messages[-1]
+    if not isinstance(last_message, AIMessage):
+        raise ValueError(f"Expected AIMessage, but got {type(last_message).__name__}")
+    
+    return "quotetools" if last_message.tool_calls else "__end__"
+
+builder_appointment.add_conditional_edges("appointment_manager", route_appointment_output)
+
+# Luego de usar herramientas, vuelve al modelo
+builder_appointment.add_edge("quotetools", "appointment_manager")
+
+# Compilamos el grafo
+graph_appointment = builder_appointment.compile(name="AppointmentManager")

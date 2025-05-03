@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from quotes.quotes.domain.quotes_service import QuotesService
 from datetime import datetime
+from quotes.quotes.application.dto.quotes_dto import QuoteDTO
 
 endpoint_quotes = "/quotes"
 
@@ -10,15 +11,11 @@ quotes_endpoint = APIRouter()
 Quotes_service = QuotesService()
 
 @quotes_endpoint.post("/schedule",tags=["quotes"])
-async def schedule_quote(name: str, gmail: str, date: datetime):
+async def schedule_quote(data: QuoteDTO):
     """
     Schedule a quote for a specific date.
     """
-    response = await Quotes_service.schedule_quote(
-        name=name,
-        gmail=gmail,
-        date=date
-    )
+    response = await Quotes_service.schedule_quote(**data.model_dump())
     return response
 
 @quotes_endpoint.get("/schedule",tags=["quotes"])

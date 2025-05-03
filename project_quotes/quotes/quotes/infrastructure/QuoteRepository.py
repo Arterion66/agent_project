@@ -53,10 +53,12 @@ class DatabaseManager:
         # Crear las tablas definidas en los modelos de SQLAlchemy (si no existen)
         Base.metadata.create_all(self.engine)
 
-    # def find(self, model, **filters):
-    #     """Método para buscar registros."""
-    #     return self.session.query(model).filter_by(**filters).all()
-    
+    def find(self, gmail: str):
+        """Busca todas las citas activas para un correo electrónico específico."""
+        return self.session.query(Quote).filter(
+            Quote.gmail == gmail,
+            Quote.type == 'active'
+        ).all()
     def find_active_quotes_by_date(self, date: datetime):
         """Método para encontrar citas ACTIVAS por fecha."""
         # Convertir la fecha a solo la parte de la fecha (sin hora)

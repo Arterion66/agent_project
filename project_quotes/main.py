@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from quotes.quotes.application.quotes_controller import quotes_endpoint
 from quotes.quotes.infrastructure.QuoteRepository import db_manager
+from quotes.emails.application.emails_controller import emails_endpoint
+
 # from fastapi_utilities import repeat_at
 # from datetime import datetime, time
 # from quotes.quotes.infrastructure.QuoteRepository import Quote
@@ -56,6 +58,7 @@ app.add_middleware(
 )
 
 app.include_router(quotes_endpoint)
+app.include_router(emails_endpoint)
 
 if __name__ == "__main__":
     db_manager.init_db()

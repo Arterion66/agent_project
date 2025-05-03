@@ -48,13 +48,19 @@ class QuotesService(BaseModel):
 
         now = datetime.now()
 
-        if date < now:
+        if date.date() < now.date():
             raise HTTPException(status_code=400, detail="No se puede revisar disponibilidad pasada.")
         
         slots = await self.generate_daily_slots(date)
         booked_slots = self.db_manager.find_active_quotes_by_date(date)
         booked_slots = [slot.date for slot in booked_slots]
         available_slots = [slot for slot in slots if slot not in booked_slots]
+
+        if date.date() == now.date():
+            available_slots = [slot for slot in available_slots if slot > now]
+        
+        if not available_slots:
+            raise HTTPException(status_code=400, detail="No quedan horarios disponibles para ese día.")
         
         return available_slots
 

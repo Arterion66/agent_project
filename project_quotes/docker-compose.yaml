@@ -27,6 +27,8 @@ services:
       - db
     ports:
       - "8001:8001"
+    environment:
+      - TZ=Europe/Madrid
     networks:
       - quotes_network
 

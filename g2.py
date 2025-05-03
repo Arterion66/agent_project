@@ -6,7 +6,7 @@ Works with a chat model with tool calling support.
 from datetime import UTC, datetime
 from typing import Dict, List, Literal, cast
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -235,26 +235,12 @@ def route_appointment_output(state: State) -> Literal["quotetools", "email_sende
     if not isinstance(last_message, AIMessage):
         raise ValueError(f"Expected AIMessage, but got {type(last_message).__name__}")
     
-    tool_calls = last_message.tool_calls or []
-
-    if tool_calls:
+    if last_message.tool_calls:
+        # Verificar si la llamada es schedule_quote o reschedule_quote
+        if "schedule_quote" in last_message.tool_calls or "reschedule_quote" in last_message.tool_calls:
+            return "email_sender"
         return "quotetools"
-    
-    # Verifica si justo antes hubo una ToolMessage, y busca su herramienta asociada
-    if len(state.messages) >= 2:
-        prev_tool_result = state.messages[-2]
-        if isinstance(prev_tool_result, ToolMessage):
-            # Busca el AIMessage correspondiente antes de eso
-            for msg in reversed(state.messages[:-2]):
-                if isinstance(msg, AIMessage):
-                    for call in msg.tool_calls or []:
-                        name = call["name"] if isinstance(call, dict) else getattr(call, "name", None)
-                        if name in {"schedule_quote", "reschedule_quote"}:
-                            return "email_sender"
-                    break
-
     return "__end__"
-
 
 async def email_sender(state: State) -> Dict[str, List[AIMessage]]:
     prompt = """You are an email sender. Once the appointment has been scheduled or rescheduled, ask the user if they want to send the appointment details by email.

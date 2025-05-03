@@ -22,6 +22,8 @@ from typing import Dict, List
 
 from datetime import datetime
 
+from langchain_core.tools import tool
+
 async def search(query: str) -> Optional[dict[str, Any]]:
     """Search for general web results.
 
@@ -58,10 +60,10 @@ async def get_pokemon_wiki(name: str) -> Optional[dict[str, Any]]:
                 return url
             else:
                 return {"error": f"Pokemon '{name}' not found."}
-
+@tool
 async def schedule_quote(name: str, gmail: str, date: datetime) -> Optional[dict]:
     """Schedule a quote for a specific date."""
-    print(date.isoformat())
+    print("TOOL schedule_quote fue invocada")
     url = "http://localhost:8001/quotes/schedule"
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -116,7 +118,7 @@ async def cancel_quote(gmail: str) -> Optional[dict]:
 
 async def send_email(gmail: str) -> Optional[dict]:
     """Send an email to the specified Gmail address."""
-    url = "http://localhost:8001/emails/send"
+    url = "http://localhost:8001/quotes/send"
     async with aiohttp.ClientSession() as session:
         async with session.post(url, params={"gmail": gmail}) as response:
             if response.status == 200:

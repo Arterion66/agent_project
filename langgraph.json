@@ -1,7 +1,9 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "agent": "./src/react_agent/graph.py:graph"
+    "agent": "./src/react_agent/graph.py:graph",
+    "agent_pokemon": "./src/react_agent/graph.py:graph_pokemon",
+    "agent_quotes": "./src/react_agent/graph.py:graph_appointment"
   },
   "env": ".env"
 }

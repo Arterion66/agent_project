@@ -116,6 +116,7 @@ async def cancel_quote(gmail: str) -> Optional[dict]:
             else:
                 return await response.json()  # Devuelve el error tal cual si no es 500
 
+@tool
 async def send_email(gmail: str) -> Optional[dict]:
     """Send an email to the specified Gmail address."""
     url = "http://localhost:8001/quotes/send"

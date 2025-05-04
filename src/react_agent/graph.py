@@ -6,7 +6,7 @@ Works with a chat model with tool calling support.
 from datetime import UTC, datetime
 from typing import Dict, List, Literal, cast
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -229,7 +229,6 @@ The current system time is: {system_time}"""
 
     return {"messages": [response]}
 
-# Flujo condicional: si hay tool_calls, ir a quotetools; si no, terminar
 def route_appointment_output(state: State) -> Literal["quotetools", "email_sender", "__end__"]:
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage):
@@ -238,9 +237,16 @@ def route_appointment_output(state: State) -> Literal["quotetools", "email_sende
     tool_calls = last_message.tool_calls or []
 
     if tool_calls:
-        return "quotetools"
+        # Verifica si las tool_calls son para QUOTETOOLS o EMAILTOOL
+        for call in tool_calls:
+            name = call["name"] if isinstance(call, dict) else getattr(call, "name", None)
+            if name in {"schedule_quote", "reschedule_quote"}:
+                return "quotetools"
+            elif name == "send_email":
+                return "emailtool"
+        return "quotetools"  # default si no reconocemos las herramientas
     
-    # Verifica si justo antes hubo una ToolMessage, y busca su herramienta asociada
+    # Verifica si justo antes hubo una ToolMessage de QUOTETOOLS
     if len(state.messages) >= 2:
         prev_tool_result = state.messages[-2]
         if isinstance(prev_tool_result, ToolMessage):
@@ -255,49 +261,54 @@ def route_appointment_output(state: State) -> Literal["quotetools", "email_sende
 
     return "__end__"
 
+import uuid
 
 async def email_sender(state: State) -> Dict[str, List[AIMessage]]:
-    prompt = """You are an email sender. Once the appointment has been scheduled or rescheduled, ask the user if they want to send the appointment details by email.
-- If the user agrees, use the tool EMAILTOOL to send the email.
-- If the user declines, do nothing.
+    # Extraer el correo electrónico
+    gmail = None
+    for msg in state.messages:
+        if isinstance(msg, HumanMessage) and "gmail.com" in msg.content:
+            gmail = msg.content.split("gmail.com")[0].split()[-1] + "gmail.com"
+            break
+    
+    if not gmail:
+        return {"messages": [AIMessage(content="No se pudo encontrar la dirección de correo electrónico.")]}
 
-Please ask the user: 'Do you want me to send the appointment details to your email? (yes/no)'"""
-    
-    model = load_chat_model("fireworks/accounts/fireworks/models/llama-v3p1-405b-instruct").bind_tools(EMAILTOOL)
-    
-    response = await model.ainvoke([{"role": "system", "content": prompt}, *state.messages])
-    
-    return {"messages": [response]}
+    # Forzamos directamente la creación de la tool call
+    return {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": "send_email",
+                    "args": {"gmail": gmail},
+                    "id": f"call_{str(uuid.uuid4())}"
+                }]
+            )
+        ]
+    }
 
-# Flujo condicional: si la respuesta es afirmativa, se envía el email, si no, no se hace nada
-def route_email_output(state: State) -> Literal["email_sent", "__end__"]:
+def route_email_output(state: State) -> Literal["emailtool", "__end__"]:
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage):
-        raise ValueError(f"Expected AIMessage, but got {type(last_message).__name__}")
+        return "__end__"
+    
+    # Si hay tool_calls, vamos a emailtool, sino terminamos
+    return "emailtool" if last_message.tool_calls else "__end__"
 
-    if "yes" in last_message.content.lower():
-        return "email_sent"
-    return "__end__"
-
-# Construimos el grafo correctamente con la relación explícita
+# Modificación en el grafo para simplificar el flujo
 builder_appointment = StateGraph(State, input=InputState, config_schema=Configuration)
 
 # Añadimos los nodos
 builder_appointment.add_node("appointment_manager", appointment_manager)
 builder_appointment.add_node("quotetools", ToolNode(QUOTETOOLS))
 builder_appointment.add_node("email_sender", email_sender)
-builder_appointment.add_node("email_sent", ToolNode(EMAILTOOL))
+builder_appointment.add_node("emailtool", ToolNode(EMAILTOOL))
 
-# Flujo inicial desde __start__ a appointment_manager
 builder_appointment.add_edge("__start__", "appointment_manager")
-
 builder_appointment.add_conditional_edges("appointment_manager", route_appointment_output)
-builder_appointment.add_conditional_edges("email_sender", route_email_output)
-
-# Luego de usar herramientas, vuelve al modelo
 builder_appointment.add_edge("quotetools", "appointment_manager")
-builder_appointment.add_edge("email_sender", "email_sent")
-builder_appointment.add_edge("email_sent", "appointment_manager")
+builder_appointment.add_edge("email_sender", "emailtool")  # Siempre va a emailtool después de email_sender
+builder_appointment.add_edge("emailtool", "__end__")  # Después de enviar el correo, termina
 
-# Compilamos el grafo
 graph_appointment = builder_appointment.compile(name="AppointmentManager")
